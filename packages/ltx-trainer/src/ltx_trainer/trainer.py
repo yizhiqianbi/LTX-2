@@ -455,7 +455,9 @@ class LtxvTrainer:
 
         # Check if we need VAE encoder (for image or reference video conditioning)
         need_vae_encoder = (
-            self._config.validation.images is not None or self._config.validation.reference_videos is not None
+            self._config.validation.images is not None
+            or self._config.validation.keyframe_images is not None
+            or self._config.validation.reference_videos is not None
         )
 
         # Load all model components (except text encoder - already handled)
@@ -887,6 +889,7 @@ class LtxvTrainer:
     def _sample_videos(self, progress: TrainingProgress) -> list[Path] | None:
         """Run validation by generating videos from validation prompts."""
         use_images = self._config.validation.images is not None
+        use_keyframe_images = self._config.validation.keyframe_images is not None
         use_reference_videos = self._config.validation.reference_videos is not None
         generate_audio = self._config.validation.generate_audio
         inference_steps = self._config.validation.inference_steps
@@ -930,6 +933,16 @@ class LtxvTrainer:
                 # Convert PIL image to tensor [C, H, W] in [0, 1]
                 condition_image = F.to_tensor(image)
 
+            # Load keyframe images if provided
+            keyframe_images = None
+            if use_keyframe_images:
+                keyframe_images = []
+                keyframe_paths = self._config.validation.keyframe_images[prompt_idx]
+                keyframe_frame_indices = self._config.validation.keyframe_frame_indices[prompt_idx]
+                for keyframe_path, frame_idx in zip(keyframe_paths, keyframe_frame_indices, strict=True):
+                    keyframe_image = open_image_as_srgb(keyframe_path)
+                    keyframe_images.append((F.to_tensor(keyframe_image), frame_idx, 1.0))
+
             # Load reference video if provided (for IC-LoRA)
             reference_video = None
             if use_reference_videos:
@@ -956,6 +969,7 @@ class LtxvTrainer:
                 guidance_scale=self._config.validation.guidance_scale,
                 seed=self._config.validation.seed,
                 condition_image=condition_image,
+                keyframe_images=keyframe_images,
                 reference_video=reference_video,
                 reference_downscale_factor=self._config.validation.reference_downscale_factor,
                 generate_audio=generate_audio,
